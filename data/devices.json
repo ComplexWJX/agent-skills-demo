@@ -1,0 +1,27 @@
+{
+  "source": "demo-fixture",
+  "observed_at": "2026-11-02T10:00:00+08:00",
+  "devices": {
+    "ONU1001": {
+      "last_heartbeat": "2026-11-02T09:45:00+08:00",
+      "transport_connected": true,
+      "expected_heartbeat_seconds": 60,
+      "heartbeat_delays_seconds": [60, 60, 65, 120, 180, 240],
+      "events": [
+        {"time": "2026-11-02T09:44:00+08:00", "type": "application-heartbeat", "detail": "last successful business heartbeat"},
+        {"time": "2026-11-02T09:45:00+08:00", "type": "application-heartbeat", "detail": "last successful business heartbeat"},
+        {"time": "2026-11-02T09:50:00+08:00", "type": "ping-sent", "detail": "server write completed; no pong evidence recorded"}
+      ]
+    },
+    "ONU1002": {
+      "last_heartbeat": "2026-11-02T09:59:30+08:00",
+      "transport_connected": true,
+      "expected_heartbeat_seconds": 60,
+      "heartbeat_delays_seconds": [58, 60, 62, 59, 61],
+      "events": [
+        {"time": "2026-11-02T09:59:30+08:00", "type": "application-heartbeat", "detail": "business heartbeat received"}
+      ]
+    }
+  }
+}
+
