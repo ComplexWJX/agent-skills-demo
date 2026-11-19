@@ -18,8 +18,35 @@ MAC_TAIL_RE = re.compile(r"^(.+?)[-:]((?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})$")
 SRV_RE = re.compile(r"^(.+)-srv$", re.I)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 KEEP_SINGLE = ("TL-", "MIWIFI-", "360-ROUTER-", "NEWIFI")
+COMMON_MODEL_VENDORS = (
+    # 手机、平板、电脑
+    "XIAOMI", "REDMI", "HUAWEI", "HONOR", "OPPO", "VIVO", "IQOO",
+    "REALME", "ONEPLUS", "MEIZU", "ZTE", "NUBIA", "APPLE", "IPHONE",
+    "IPAD", "SAMSUNG", "GALAXY", "GOOGLE", "PIXEL", "SONY", "XPERIA",
+    "NOKIA", "MOTOROLA", "MOTO", "LENOVO", "THINKPAD", "HASEE", "ASUS",
+    "ROG", "ACER", "DELL", "HP", "MSI", "GIGABYTE", "MICROSOFT", "SURFACE",
+    # 网络、存储设备
+    "TP-LINK", "TPLINK", "MERCURY", "FAST", "TENDA", "RUIJIE", "REYEE",
+    "H3C", "CISCO", "NETGEAR", "LINKSYS", "D-LINK", "DLINK", "UBIQUITI",
+    "SYNOLOGY", "QNAP", "PHICOMM", "NETCORE",
+    # 家电、电视、IoT
+    "MIDEA", "GREE", "HAIER", "HISENSE", "TCL", "SKYWORTH", "CHANGHONG",
+    "KONKA", "VIOMI", "ROBOROCK", "ECOVACS", "DREAME", "YEELINK", "AQARA",
+    "AMAZON", "ECHO", "KINDLE", "LG", "PANASONIC", "SHARP",
+    # 摄像、打印及其他常见终端
+    "HIKVISION", "EZVIZ", "DAHUA", "IMOU", "DJI", "PANTUM", "EPSON",
+    "CANON", "BROTHER", "FUJIFILM", "XEROX", "NIKON",
+)
+_COMMON_MODEL_VENDOR_RE = "(?:" + "|".join(re.escape(name) for name in COMMON_MODEL_VENDORS) + ")"
 MODELISH = re.compile(
-    r"^(MW\d{3,4}[A-Z]?|DIR-\d{3,4}[A-Z]?|APALIS-[A-Z0-9]+|(?:DELL|ASUS|LENOVO|ROG)-[A-Z0-9-]{2,16})$",
+    r"^(?:"
+    r"MW\d{3,4}[A-Z]?"
+    r"|DIR-\d{3,4}[A-Z]?"
+    r"|APALIS-[A-Z0-9]+"
+    r"|(?:DELL|ASUS|LENOVO|ROG)-[A-Z0-9-]{2,16}"
+    r"|" + _COMMON_MODEL_VENDOR_RE
+    + r"[-_ ](?=[A-Z0-9._ -]{1,48}$)(?=[A-Z0-9._ -]*\d)[A-Z0-9]+(?:[-_ .][A-Z0-9]+)*"
+    r")$",
     re.I,
 )
 CONCLUSIONS = ("有型号", "仅系列", "仅类别", "空", "冲突")
@@ -406,4 +433,20 @@ if __name__ == "__main__":
         got = assign_keyword(host, set())
         if got != expect:
             raise SystemExit("%s -> %s, want %s" % (host, got, expect))
+    modelish_cases = (
+        "Xiaomi-12S-Ultra", "REDMI-Note-14-Pro", "HUAWEI-Pura-70",
+        "HONOR-Magic7-Pro", "OPPO-Find-X8", "vivo-X200-Pro",
+        "Samsung-Galaxy-S25-Ultra", "Google-Pixel-9-Pro",
+        "Apple-iPhone-16-Pro", "HP-EliteBook-840-G10",
+        "TP-LINK-Archer-AX73", "NETGEAR-RAX50", "MIDEA-KFR-35GW",
+        "HIKVISION-DS-2CD3T47EWD", "EPSON-L3255", "SYNOLOGY-DS923-PLUS",
+    )
+    for host in modelish_cases:
+        keyword, rule = assign_keyword(host, set())
+        if rule != "原文" or not raw_keep(keyword):
+            raise SystemExit("型号型单次主机名未保留: %s -> %s / %s" % (host, keyword, rule))
+    for host in ("XIAOMI", "SAMSUNG", "Huawei-Alice", "HP-PRINTER"):
+        keyword, rule = assign_keyword(host, set())
+        if raw_keep(keyword):
+            raise SystemExit("非型号主机名被误保留: %s -> %s / %s" % (host, keyword, rule))
     print("ok")

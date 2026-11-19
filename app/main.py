@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.agent import build_agent
 from app.config import PROJECT_ROOT, Settings
-from app.service import AgentService, BusyError, SessionLimitError
+from app.service import AgentLoopError, AgentService, BusyError, SessionLimitError
 from app.skills import SkillRegistry
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,8 @@ def create_app(settings: Settings | None = None, model=None) -> FastAPI:
             raise HTTPException(status_code=429, detail=str(exc)) from None
         except SessionLimitError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
+        except AgentLoopError as exc:
+            raise HTTPException(status_code=508, detail=str(exc)) from None
         except TimeoutError:
             raise HTTPException(status_code=504, detail="请求超时，请使用新的 session_id 重试") from None
         except Exception:
@@ -78,3 +80,4 @@ def create_app(settings: Settings | None = None, model=None) -> FastAPI:
 
 app = create_app()
 
+logger.info("Agent Skills Demo app initialized with settings.")

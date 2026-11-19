@@ -12,22 +12,32 @@ from app.main import create_app
 from app.offline_demo import ScriptedChatModel, TRIAGE_STEPS, REPORT_STEPS, call
 from app.service import AgentService, BusyError, SessionLimitError
 from app.skills import SkillRegistry
-from app.tools import DeviceRepository, build_tools
+from app.tools import (DeviceRepository, build_tools, parse_lookup_model_output,
+                       parse_pending_keywords_output, parse_script_result)
 
 TOKEN = "offline-test-token"
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
 
 def settings(**changes):
-    return Settings(llm_api_key="not-used", llm_model="scripted", app_api_token=TOKEN, **changes)
+    values = {
+        "llm_provider": "openai",
+        "llm_api_key": "not-used",
+        "llm_model": "scripted",
+        "llm_base_url": None,
+        "app_api_token": TOKEN,
+    }
+    values.update(changes)
+    return Settings(**values)
 
 
 def test_provider_defaults_and_deepseek_chat_options(monkeypatch):
     openai_settings = settings()
+    assert openai_settings.resolved_llm_provider == "openai"
     assert openai_settings.resolved_llm_base_url == "https://api.openai.com/v1"
 
-    # Explicit None isolates the provider default from a developer's local .env.
     deepseek_settings = settings(llm_provider="deepseek", llm_base_url=None)
+    assert deepseek_settings.resolved_llm_provider == "deepseek"
     assert deepseek_settings.resolved_llm_base_url == "https://api.deepseek.com"
 
     captured = {}
@@ -43,6 +53,18 @@ def test_provider_defaults_and_deepseek_chat_options(monkeypatch):
     assert captured["base_url"] == "https://api.deepseek.com"
     assert captured["use_responses_api"] is False
     assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.parametrize(
+    ("model", "base_url"),
+    [
+        ("deepseek-flash", None),
+        ("some-model", "https://api.deepseek.com/"),
+    ],
+)
+def test_auto_provider_detects_deepseek(model, base_url):
+    configured = settings(llm_provider="auto", llm_model=model, llm_base_url=base_url)
+    assert configured.resolved_llm_provider == "deepseek"
 
 
 def test_custom_provider_endpoint_is_normalized():
@@ -134,7 +156,9 @@ def test_call_limit_stops_loop_and_marks_session_failed():
     app = create_app(settings(), ScriptedChatModel(responses=[loop]))
     with TestClient(app) as client:
         body = {"session_id": "loop", "message": "loop"}
-        assert client.post("/chat", headers=HEADERS, json=body).status_code == 502
+        response = client.post("/chat", headers=HEADERS, json=body)
+        assert response.status_code == 508
+        assert "安全上限" in response.json()["detail"]
         assert client.post("/chat", headers=HEADERS, json=body).status_code == 409
 
 
@@ -156,6 +180,61 @@ def test_unknown_device_and_reference_error_are_tool_results():
     assert tools["get_device_status"].invoke({"device_id": "missing"})["error"] == "device_not_found"
     assert tools["read_skill_reference"].invoke(
         {"skill_name": "device-triage", "relative_path": "../../.env"})["error"] == "reference_unavailable"
+    assert "pending_keywords" in tools
+
+
+def test_parse_pending_keywords_output():
+    output = (
+        "关键字\t规约规则\t行数\t主要vendorClass\tvendorClass分布\t样例主机名\n"
+        "XIAOMI-12S-ULTRA\t原文\t1\t主机名回声\t主机名回声:1\tXiaomi-12S-Ultra\n"
+        "ZXHN E1630\t去掉MAC后缀\t2\tudhcp\tudhcp:2\tZXHN E1630-aa:bb:cc:dd:ee:ff\n"
+        "shown 2\nremaining 7\n"
+    )
+    parsed = parse_pending_keywords_output(output)
+    assert parsed["shown"] == 2
+    assert parsed["remaining"] == 7
+    assert parsed["keywords"][0]["关键字"] == "XIAOMI-12S-ULTRA"
+    assert parsed["keywords"][1]["规约规则"] == "去掉MAC后缀"
+
+
+@pytest.mark.parametrize("output, expected", [
+    (
+        "MATCH\n厂商\t小米\n类别\t手机\n型号\t12S Ultra\n"
+        "来源\thttps://example.test/model\n属性键\tcpu,mem,release_time\n同名\t是\n",
+        {"status": "MATCH", "型号": "12S Ultra", "同名": "是"},
+    ),
+    (
+        "NEW\n属性键\tcpu,mem,release_time\n同名\t否\n",
+        {"status": "NEW", "属性键": "cpu,mem,release_time", "同名": "否"},
+    ),
+])
+def test_parse_lookup_model_match_and_new(output, expected):
+    parsed = parse_lookup_model_output(output)
+    for key, value in expected.items():
+        assert parsed[key] == value
+
+
+def test_parse_lookup_model_ambiguous():
+    parsed = parse_lookup_model_output(
+        "AMBIGUOUS\n小米\t手机\t12S Ultra\n红米\t手机\t12 Ultra\ncount 4\n"
+    )
+    assert parsed == {
+        "status": "AMBIGUOUS",
+        "candidates": [
+            {"厂商": "小米", "类别": "手机", "型号": "12S Ultra"},
+            {"厂商": "红米", "类别": "手机", "型号": "12 Ultra"},
+        ],
+        "count": 4,
+    }
+
+
+def test_script_output_parse_errors_are_tool_results():
+    result = parse_script_result(
+        {"returncode": 0, "stdout": "NEW\n", "stderr": ""},
+        parse_lookup_model_output,
+    )
+    assert result["error"] == "invalid_script_output"
+    assert "属性键" in result["detail"]
 
 
 def test_timeout_invalidates_session():

@@ -108,6 +108,9 @@ LLM_API_KEY=你的模型API密钥
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=你有权限使用且支持工具调用的模型名
 APP_API_TOKEN=本地接口访问令牌至少16字符
+AGENT_MODEL_CALL_LIMIT=8
+AGENT_TOOL_CALL_LIMIT=12
+AGENT_RECURSION_LIMIT=100
 APP_REQUEST_TIMEOUT=90
 APP_MAX_CONCURRENT=4
 APP_MAX_SESSIONS=100
@@ -124,9 +127,12 @@ LLM_MODEL=deepseek-flash
 APP_API_TOKEN=本地接口访问令牌至少16字符
 ```
 
-`LLM_BASE_URL` 可省略，程序会按 `LLM_PROVIDER` 选择官方默认地址；保留该项可接入
-兼容网关或代理。DeepSeek 分支会显式使用非思考模式，以稳定支持 Agent 的多轮
-`tools` / `tool_calls` 调用。
+`LLM_PROVIDER` 可设为 `auto` 或省略，程序会根据模型名和官方 API 地址识别
+DeepSeek；`LLM_BASE_URL` 也可省略，由供应商决定官方默认地址。保留地址可接入兼容
+网关或代理。DeepSeek 分支会显式使用非思考模式，以稳定支持 Agent 的多轮
+`tools` / `tool_calls` 调用。`AGENT_RECURSION_LIMIT` 是 LangGraph 节点步数上限，需
+高于模型和工具调用上限；默认值 100 可覆盖当前中间件图，并由更小的调用上限负责
+终止异常循环。
 
 模型必须支持原生工具调用，即 Chat Completions 中的 `tools` / `tool_calls`。
 本示例用 `ChatOpenAI(..., use_responses_api=False)` 连接该协议；仅支持文本聊天的

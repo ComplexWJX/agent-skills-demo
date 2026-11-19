@@ -2,7 +2,10 @@ import asyncio
 from dataclasses import dataclass, field
 import logging
 
+from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.errors import GraphRecursionError
 
 from app.config import Settings
 
@@ -14,6 +17,10 @@ class BusyError(Exception):
 
 
 class SessionLimitError(Exception):
+    pass
+
+
+class AgentLoopError(Exception):
     pass
 
 
@@ -58,9 +65,19 @@ class AgentService:
                 result = await asyncio.wait_for(
                     self.agent.ainvoke(
                         {"messages": [{"role": "user", "content": message}]},
-                        config={"configurable": {"thread_id": session_id}, "recursion_limit": 30},
+                        config={"configurable": {"thread_id": session_id},
+                                "recursion_limit": self.settings.agent_recursion_limit},
                     ), timeout=self.settings.app_request_timeout,
                 )
+            except (ModelCallLimitExceededError, ToolCallLimitExceededError,
+                    GraphRecursionError) as exc:
+                session.failed = True
+                logger.warning("agent_loop_stopped session=%s cause=%s", session_id,
+                               type(exc).__name__)
+                raise AgentLoopError(
+                    "Agent 连续调用模型或工具但未生成最终答案，已在安全上限停止；"
+                    "请精简请求并使用新的 session_id 重试"
+                ) from exc
             except BaseException:
                 session.failed = True
                 raise
