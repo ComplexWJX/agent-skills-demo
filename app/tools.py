@@ -5,6 +5,7 @@ import logging
 import re
 import sys
 import subprocess
+import tempfile
 from pathlib import Path
 from statistics import mean
 from pathlib import Path
@@ -245,18 +246,20 @@ def build_tools(registry: SkillRegistry, repository: DeviceRepository):
         """调用搜索引擎，返回网页标题和 URL，keyword是精简的型号关键字，limit是返回结果数。"""
         logger.info("device_info_search: keyword=%s, limit=%d", keyword, limit)
         # result = json.loads(BASE_DIR / "fetch.json")
-        result = {}
+        ret = {}
         with open (BASE_DIR / "fetch.json", "r", encoding="utf-8") as f:
             result = json.load(f)
             for key in result:
+                logger.info("device_info_search: loop key=%s", key)
                 if key in keyword:
-                    result = result[key]
-        logger.info("device_info_search: result=%s", result)                    
-        return result # TODO: replace with real search engine call
+                    ret = result[key]
+        logger.info("device_info_search: result=%s", ret)                    
+        return ret # TODO: replace with real search engine call
 
     @tool
     def lookup_model(catalog: str, vendor: str, model: str, keyword: str):
         """查询型号底座，结构化返回 MATCH、NEW 或 AMBIGUOUS 结果。"""
+        logger.info("lookup_model: catalog=%s, vendor=%s, model=%s, keyword=%s", catalog, vendor, model, keyword)
         result = run_script(str(SCRIPT_PATH / "lookup_model.py"),
                             ["--catalog", str(BASE_DIR / catalog), "--vendor", vendor,
                              "--model", model, "--keyword", keyword])
@@ -268,9 +271,38 @@ def build_tools(registry: SkillRegistry, repository: DeviceRepository):
         return run_script(str(SCRIPT_PATH / "apply_hits.py"), ["--catalog", str(BASE_DIR / catalog), "--mapping", str(BASE_DIR / 'output' / mapping), "--hits", str(BASE_DIR / 'output' / hits), *args])
 
     @tool
-    def append_hits(hits: str, output: str):
-        """负责严格校验并增量保存每批结论，禁止覆盖"""
-        return run_script(str(SCRIPT_PATH / "append_hits.py"), ["--hits", str(BASE_DIR / 'output' / hits), "--output", str(BASE_DIR / output)])
+    def append_hits(hits: str, batch: list[dict]):
+        """保存本批检索结论。batch 是结论对象列表，每条保留关键字、规约规则及结论等字段。
+
+        自动创建批次 JSON 并传给脚本，无需提供 JSON 文件路径。属性JSON 可为对象或
+        JSON 字符串。hits 可为文件名、output/相对路径或绝对路径，已有关键字禁止覆盖。
+        """
+        if not batch:
+            return {"error": "empty_batch", "detail": "本批检索结论不能为空"}
+        hits_path = Path(hits)
+        if not hits_path.is_absolute():
+            hits_path = (BASE_DIR / hits_path if hits_path.parts[0] == "output"
+                         else BASE_DIR / "output" / hits_path)
+        rows = []
+        for item in batch:
+            row = dict(item)
+            if isinstance(row.get("属性JSON"), dict):
+                row["属性JSON"] = json.dumps(row["属性JSON"], ensure_ascii=False)
+            rows.append(row)
+        hits_path.parent.mkdir(parents=True, exist_ok=True)
+        # Close before launching Python: Windows cannot reopen an open temporary file.
+        # Retain the batch for diagnosis/retry, including when the script fails.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".json",
+            prefix="hostname-batch-", dir=hits_path.parent, delete=False,
+        ) as stream:
+            json.dump(rows, stream, ensure_ascii=False, indent=2)
+            batch_path = Path(stream.name)
+        logger.info("append_hits: hits=%s batch_json=%s count=%d",
+                    hits_path, batch_path, len(rows))
+        result = run_script(str(SCRIPT_PATH / "append_hits.py"),
+                            ["--hits", str(hits_path), "--json", str(batch_path)])
+        return {**result, "batch_json": str(batch_path), "hits": str(hits_path)}
 
     return [load_skill, read_skill_reference, get_device_status,
             get_device_events, summarize_heartbeat_intervals, reduce_keywords, pending_keywords, lookup_model,

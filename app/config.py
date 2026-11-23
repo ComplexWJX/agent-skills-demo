@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr
     llm_model: str = Field(min_length=1)
     llm_base_url: str | None = None
-    agent_model_call_limit: int = Field(default=8, ge=1, le=32)
+    agent_model_call_limit: int = Field(default=12, ge=1, le=32)
     agent_tool_call_limit: int = Field(default=12, ge=1, le=64)
     agent_recursion_limit: int = Field(default=100, ge=20, le=1000)
     app_api_token: SecretStr = Field(min_length=16)
